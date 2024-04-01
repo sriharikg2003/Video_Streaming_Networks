@@ -16,7 +16,7 @@ def askNameAndRSA(sender_socket, address):
     # Send the updated clientsAndKey dictionary to the client
     clientsAndKeyToSend = {name: key.export_key().decode() for name, key in clientsAndKey.items()}
     clientsAndKeyStr = json.dumps(clientsAndKeyToSend)
-    sender_socket.send(clientsAndKeyStr.encode())
+    sender_socket.send(b"NEDI"+clientsAndKeyStr.encode())
 
     # Update clientsAndKey and clientsAndPort dictionaries
     clientsAndKey[name] = publicKey
@@ -34,26 +34,34 @@ def create_encrypted_message(public_key, message):
 
 import json
 
-def broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket):
-    for clientName, socket in clientsAndPort.items():
-        if socket != sender_socket:
-            try:
-                clientsAndKeyToSend = {}
-                for name, key in clientsAndKey.items():
-                    if clientsAndPort[name] != socket:
-                        # Export the RSA public key to a string representation
-                        public_key_str = key.export_key().decode()
-                        # Add the client name and public key to the dictionary
-                        clientsAndKeyToSend[name] = public_key_str
+def broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket,message=None,connect_join=None):
 
-                # Serialize the dictionary to JSON
-                clientsAndKeyStr = json.dumps(clientsAndKeyToSend)
+    if not message:
+        for clientName, socket in clientsAndPort.items():
+            if socket != sender_socket:
+                try:
+                    clientsAndKeyToSend = {}
+                    for name, key in clientsAndKey.items():
+                        if clientsAndPort[name] != socket:
+                            # Export the RSA public key to a string representation
+                            public_key_str = key.export_key().decode()
+                            # Add the client name and public key to the dictionary
+                            clientsAndKeyToSend[name] = public_key_str
 
-                socket.send(clientsAndKeyStr.encode())
-            except Exception as e:
-                print(f"Error broadcasting clientsAndKey to {clientName}: {str(e)}")
+                    # Serialize the dictionary to JSON
+                    clientsAndKeyStr = json.dumps(clientsAndKeyToSend)
 
+                    socket.send(b"NEDI"+clientsAndKeyStr.encode())
+                except Exception as e:
+                    print(f"Error broadcasting clientsAndKey to {clientName}: {str(e)}")
 
+    else:
+        for clientName, socket in clientsAndPort.items():
+            if socket != sender_socket:
+                try:
+                    socket.send(b"CHAT"+message)
+                except Exception as e:
+                    print(f"Error broadcasting enc message to {clientName}: {str(e)}")
 
 
 
@@ -66,23 +74,31 @@ def handleClient(client_socket, address):
             message = client_socket.recv(4096)
             if not message:
                 break
+            if message[:4]==b"CHAT":
+                print("CHAT")
+                encrypted_message = message[4:]
+                # print(encrypted_message)
+                broadcastClientsAndKey(clientsAndKey, clientsAndPort, client_socket, message=encrypted_message)
 
-            if message.decode()=="QUIT":
-                print(name ,"QUITED")
+            elif message.decode() == "QUIT":
+                print(name, "QUITED")
                 del clientsAndPort[name] 
                 del clientsAndKey[name]
                 for clientName, socket in clientsAndPort.items():
-                    socket.send(f'{name} Left the connection'.encode())
+                    socket.send(f'QUIT{name} Left the connection'.encode())
                 broadcastClientsAndKey(clientsAndKey, clientsAndPort, client_socket)
                 client_socket.close()
                 return 
-            print("RECV MESS" ,message.decode())
+
+
+            # print("RECV MESS", message.decode())
         except Exception as e:
             print(f"Error receiving data from {address}: {str(e)}")
             break
 
     client_socket.close()
     print(f"Connection closed with {address}")
+
 
 
 def start():

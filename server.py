@@ -3,28 +3,42 @@ import threading
 from Crypto.PublicKey import RSA
 import json
 from Crypto.Cipher import PKCS1_OAEP
-
+import time
+import os
 clientsAndKey = {}
 clientsAndPort = {}
+
+directory = 'Videos'
+video_folder = dict()
+for i in os.listdir(directory):
+    video_folder[i]=[]
+for i in os.listdir(directory):
+    for j in os.listdir(f'{directory}/'+i):
+        video_folder[i].append(directory+"/"+i+"/"+j)
+print(video_folder)
+
+
+
+
+# print("FILES:", files)
+# files_string = " ".join(files)
+
+
 
 def askNameAndRSA(sender_socket, address):
     sender_socket.send("Enter your name:\n".encode())
     name = sender_socket.recv(1024).decode()
     publicKeyData = sender_socket.recv(4096)
     publicKey = RSA.import_key(publicKeyData)
-
     # Send the updated clientsAndKey dictionary to the client
     clientsAndKeyToSend = {name: key.export_key().decode() for name, key in clientsAndKey.items()}
     clientsAndKeyStr = json.dumps(clientsAndKeyToSend)
     sender_socket.send(b"NEDI"+clientsAndKeyStr.encode())
-
     # Update clientsAndKey and clientsAndPort dictionaries
     clientsAndKey[name] = publicKey
     clientsAndPort[name] = sender_socket
-
     # Broadcast the updated clientsAndKey dictionary to all clients
     broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket)
-
     return name
 
 def create_encrypted_message(public_key, message):
@@ -35,7 +49,6 @@ def create_encrypted_message(public_key, message):
 import json
 
 def broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket,message=None,connect_join=None):
-
     if not message:
         for clientName, socket in clientsAndPort.items():
             if socket != sender_socket:
@@ -47,10 +60,8 @@ def broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket,message=
                             public_key_str = key.export_key().decode()
                             # Add the client name and public key to the dictionary
                             clientsAndKeyToSend[name] = public_key_str
-
                     # Serialize the dictionary to JSON
                     clientsAndKeyStr = json.dumps(clientsAndKeyToSend)
-
                     socket.send(b"NEDI"+clientsAndKeyStr.encode())
                 except Exception as e:
                     print(f"Error broadcasting clientsAndKey to {clientName}: {str(e)}")
@@ -64,11 +75,23 @@ def broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket,message=
                     print(f"Error broadcasting enc message to {clientName}: {str(e)}")
 
 
+def handleVideo(client_socket):
+
+    print("request for files viewing" , str(video_folder.keys()))
+    # Sending the list of files to the client
+    client_socket.send(str(video_folder.keys()).encode())
+    print("List of files sent")
+    
+    # Receiving the choice of video from the client
+    video_requested = client_socket.recv(1024).decode()
+    print("Requested video:", video_folder[video_requested])
+ 
+    client_socket.sendall(f"VIDEO SENT {str(video_folder[video_requested])}".encode())
+
 
 def handleClient(client_socket, address):
     print(f"Connection established from {address}")
     name = askNameAndRSA(client_socket, address)
-
     while True:
         try:
             message = client_socket.recv(4096)
@@ -90,8 +113,9 @@ def handleClient(client_socket, address):
                 client_socket.close()
                 return 
 
-
-            # print("RECV MESS", message.decode())
+            elif message.decode()[:4]=="PLAY":
+                handleVideo(client_socket)
+                
         except Exception as e:
             print(f"Error receiving data from {address}: {str(e)}")
             break
@@ -100,12 +124,11 @@ def handleClient(client_socket, address):
     print(f"Connection closed with {address}")
 
 
-
 def start():
     serverSocket = socket(AF_INET, SOCK_STREAM)
     serverPort = 5555
     serverSocket.setsockopt(SOL_SOCKET,SO_REUSEADDR, 1)
-    serverSocket.bind(('',serverPort))
+    serverSocket.bind(('localhost',serverPort))
     serverSocket.listen(10)
     print(f"Server listening on PORT: {serverPort}")
 

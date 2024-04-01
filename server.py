@@ -7,29 +7,48 @@ from Crypto.Cipher import PKCS1_OAEP
 clientsAndKey = {}
 clientsAndPort = {}
 
-
 def askNameAndRSA(sender_socket, address):
     sender_socket.send("Enter your name:\n".encode())
     name = sender_socket.recv(1024).decode()
     publicKeyData = sender_socket.recv(4096)
     publicKey = RSA.import_key(publicKeyData)
-    clientsAndKeyStr = str(clientsAndKey)
+
+    # Send the updated clientsAndKey dictionary to the client
+    clientsAndKeyToSend = {name: key.export_key().decode() for name, key in clientsAndKey.items()}
+    clientsAndKeyStr = json.dumps(clientsAndKeyToSend)
     sender_socket.send(clientsAndKeyStr.encode())
+
+    # Update clientsAndKey and clientsAndPort dictionaries
     clientsAndKey[name] = publicKey
     clientsAndPort[name] = sender_socket
 
-    broadcastClientsAndKey(clientsAndKey, clientsAndPort ,sender_socket)
+    # Broadcast the updated clientsAndKey dictionary to all clients
+    broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket)
+
     return name
 
+def create_encrypted_message(public_key, message):
+    rsa_public_key = RSA.import_key(public_key)
+    encrypted_message = rsa_public_key.encrypt(message.encode(), 32)
+    return encrypted_message[0]
+
+import json
 
 def broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket):
-
     for clientName, socket in clientsAndPort.items():
         if socket != sender_socket:
             try:
-                clientsAndKeyToSend = {name: key for name, key in clientsAndKey.items() if clientsAndPort[name] != socket}
-                
-                clientsAndKeyStr = str(clientsAndKeyToSend)
+                clientsAndKeyToSend = {}
+                for name, key in clientsAndKey.items():
+                    if clientsAndPort[name] != socket:
+                        # Export the RSA public key to a string representation
+                        public_key_str = key.export_key().decode()
+                        # Add the client name and public key to the dictionary
+                        clientsAndKeyToSend[name] = public_key_str
+
+                # Serialize the dictionary to JSON
+                clientsAndKeyStr = json.dumps(clientsAndKeyToSend)
+
                 socket.send(clientsAndKeyStr.encode())
             except Exception as e:
                 print(f"Error broadcasting clientsAndKey to {clientName}: {str(e)}")

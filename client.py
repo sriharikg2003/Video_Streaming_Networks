@@ -2,30 +2,35 @@ import socket
 import json
 from threading import Thread
 from Crypto.PublicKey import RSA
+import ast
 
 name_directory = dict()
 def receive_messages(client_socket):
+    global name_directory  # Ensure you're accessing the global variable
+
     while True:
         try:
             message = client_socket.recv(4096)
+            print(message.decode())
             if not message:
                 break
-            print(message.decode())
-        # Connection quitted but still attempts then connection closed
+            
+            # Decode the received message as JSON and update name_directory
+            data = json.loads(message.decode())
+            name_directory.update(data)
+
+            print("Updated name_directory:", name_directory)
+
         except ConnectionResetError:
-            # may delete later
-            print("Connection closed by server.") 
+            print("Connection closed by server.")
             break
-
-        
-
 def get_user_input(client_socket):
     while True:
-        user_input = input("Enter your message (type 'QUIT' to quit): ")
+        user_input = input("Enter your message (type 'QUIT' to quit)  (type CHAT to chat): ")
         client_socket.send(user_input.encode())
         if user_input.strip().upper() == "QUIT":
             exit()
-            
+        
 
 def start_client():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -33,7 +38,7 @@ def start_client():
     name = input(client_socket.recv(1024).decode())
     client_socket.send(name.encode())
 
-    key = RSA.generate(2048)
+    key = RSA.generate(1025)
     public_key = key.publickey().export_key()
     private_key = key.export_key()
 

@@ -5,6 +5,9 @@ import json
 from Crypto.Cipher import PKCS1_OAEP
 import time
 import os
+import cv2
+import pickle 
+import struct
 clientsAndKey = {}
 clientsAndPort = {}
 
@@ -18,10 +21,6 @@ for i in os.listdir(directory):
 print(video_folder)
 
 
-
-
-# print("FILES:", files)
-# files_string = " ".join(files)
 
 
 
@@ -74,19 +73,44 @@ def broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket,message=
                 except Exception as e:
                     print(f"Error broadcasting enc message to {clientName}: {str(e)}")
 
+def sendVideo(client_socket,video_name):
+    print("SNDING VIDEO")
+    # video_path = "Videos/BEES/1-sd_640_360_30fps.mp4"  # Replace 'your_video_file.mp4' with the path to your video file
+    video_path = video_folder[video_name][0]
+    video = cv2.VideoCapture(video_path)
+    
+    while True:
+        ret, frame = video.read()
+        if not ret:
+            break
+
+        # Encode frame
+        _, encoded_frame = cv2.imencode('.jpg', frame)
+        frame_data = pickle.dumps(encoded_frame, 0)
+
+        # Pack frame size and frame data
+        size = len(frame_data)
+        packed_size = struct.pack(">L", size)
+
+        # Send frame size and frame data
+        client_socket.sendall(packed_size + frame_data)
+
+    video.release()
+    client_socket.sendall("END".encode())
+    print("DONE AND ENDED")
+    return 
 
 def handleVideo(client_socket):
 
-    print("request for files viewing" , str(video_folder.keys()))
     # Sending the list of files to the client
-    client_socket.send(str(video_folder.keys()).encode())
-    print("List of files sent")
+
     
     # Receiving the choice of video from the client
     video_requested = client_socket.recv(1024).decode()
+    print("CAME",video_requested)
     print("Requested video:", video_folder[video_requested])
  
-    client_socket.sendall(f"VIDEO SENT {str(video_folder[video_requested])}".encode())
+    client_socket.sendall((f"PLAYING{str(video_folder[video_requested])}").encode())
 
 
 def handleClient(client_socket, address):
@@ -95,6 +119,7 @@ def handleClient(client_socket, address):
     while True:
         try:
             message = client_socket.recv(4096)
+            print(message.decode() , "RECIEVED FROM CLIENT")
             if not message:
                 break
             if message[:4]==b"CHAT":
@@ -114,15 +139,20 @@ def handleClient(client_socket, address):
                 return 
 
             elif message.decode()[:4]=="PLAY":
-                handleVideo(client_socket)
-                
+                client_socket.send(("PLAY"+str(video_folder.keys())).encode())
+                print("request for files viewing" , str(video_folder.keys()))
+
+            elif message.decode()[:4]=="SHOW":
+                client_socket.send("SHOW".encode())
+                video_name = message.decode()[4:]
+                sendVideo(client_socket,video_name)
+                # client_socket.send(f"SHOWING{video_folder[message.decode()[4:]]}".encode())
         except Exception as e:
             print(f"Error receiving data from {address}: {str(e)}")
             break
 
     client_socket.close()
     print(f"Connection closed with {address}")
-
 
 def start():
     serverSocket = socket(AF_INET, SOCK_STREAM)
@@ -131,10 +161,8 @@ def start():
     serverSocket.bind(('localhost',serverPort))
     serverSocket.listen(10)
     print(f"Server listening on PORT: {serverPort}")
-
     while True:
         clientSocket, address = serverSocket.accept()
         clientThread = threading.Thread(target=handleClient, args=(clientSocket, address))
         clientThread.start()
-
 start()

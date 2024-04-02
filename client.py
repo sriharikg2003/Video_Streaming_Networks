@@ -3,7 +3,10 @@ import json
 from threading import Thread, Lock, Event
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
-
+import struct
+import pickle
+import cv2
+lock = Lock()
 name_directory = dict()
 frame = None
 
@@ -14,32 +17,103 @@ def decrypt_message(encrypted_message, private_key):
         decrypted_message = cipher.decrypt(encrypted_message)
         return decrypted_message.decode()
     except ValueError as e:
-        # print("Sorry, unable to decrypt the message. This is not for you.")
         return None
+def playvideo(client_socket):
+    data = b""
+    payload_size = struct.calcsize(">L")
+    video_finished = False  # Flag to track whether the video has finished
 
-def receive_messages(client_socket, private_key, lock, block_event):
+    while not video_finished:
+        while len(data) < payload_size:
+            data += client_socket.recv(4096)
+
+        packed_msg_size = data[:payload_size]
+        data = data[payload_size:]
+
+        msg_size = struct.unpack(">L", packed_msg_size)[0]
+
+        while len(data) < msg_size:
+            data += client_socket.recv(4096)
+
+        frame_data = data[:msg_size]
+        data = data[msg_size:]
+
+        # Decode frame
+        encoded_frame = pickle.loads(frame_data)
+        frame = cv2.imdecode(encoded_frame, cv2.IMREAD_COLOR)
+
+        # Display frame
+        cv2.imshow('Video', frame)
+
+        # Check for 'q' key press to exit
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+        # Check if there's no more data (video finished)
+        if len(frame_data) == 0:
+            video_finished = True
+
+        # Check if the window is closed
+        if cv2.getWindowProperty('Video', cv2.WND_PROP_VISIBLE) < 1:
+            video_finished = True
+
+    cv2.destroyAllWindows()
+
+
+
+def receive_messages(client_socket, private_key,  block_event):
     global name_directory
+    global lock
     while True:
-        if not lock.locked():  # Check if the lock is not acquired
-            try:
-                message = client_socket.recv(4096)
-                if not message:
-                    break
-                if message[:4] == b'CHAT':
-                    encrypted_message = message[4:]
-                    decrypted_message = decrypt_message(encrypted_message, private_key)
-                    if decrypted_message:
-                        print("Received decrypted message:", decrypted_message)
-                elif message.decode()[:4] == "QUIT":
-                    print("\n" + message.decode()[4:])
-                elif message.decode()[:4] == "NEDI":
-                    data = json.loads(message.decode()[4:])
-                    name_directory.update(data)
-                    print(name_directory)
-            except ConnectionResetError:
-                print("Connection closed by server.")
+        # Check if the lock is not acquired
+        try:
+            
+            message = client_socket.recv(4096)
+            print(message.decode() , "RECIEVED FROM SERERER")
+            if not message:
+                
                 break
+            if message[:4] == b'CHAT':
+                encrypted_message = message[4:]
+                decrypted_message = decrypt_message(encrypted_message, private_key)
+                if decrypted_message:
+                    print("Received decrypted message:", decrypted_message)
+                
+            elif message.decode()[:4] == "QUIT":
+                print("\n" + message.decode()[4:])
+                
+            elif message.decode()[:4] == "NEDI":
+                data = json.loads(message.decode()[4:])
+                name_directory.update(data)
+                print(name_directory)
+                
+            elif message.decode()[:4] == "PLAY":
+                print("AVAILABLE FILES"  ,  message.decode()[4:])
 
+            elif message.decode()[:4]=="SHOW":
+                playvideo(client_socket)
+                # print("PLAYING FILE"  ,  message.decode()[4:])
+
+        except ConnectionResetError:
+            print("Connection closed by server.")
+            break
+
+def get_user_input(client_socket, name, block_event):
+    while True:
+
+        user_input = input("Enter your message (type 'QUIT' to quit)  (type CHAT to chat) (PLAY to get files) (SHOW to play video): ")
+        if user_input.strip().upper() == "QUIT":
+            client_socket.send(user_input.encode())
+            exit()
+        if user_input.strip().upper() == "CHAT":
+            chat(client_socket, name)
+        if user_input.strip().upper() == "PLAY":
+            client_socket.sendall("PLAY".encode())
+            print("Asked for PLAY")
+        if user_input.strip().upper() == "SHOW":
+            video_requested = input("Enter the file you want")
+            client_socket.sendall(f"SHOW{video_requested}".encode())
+            # playVideo(client_socket, name, lock, block_event)
 
 def chat(client_socket, name):
     global name_directory
@@ -59,53 +133,6 @@ def chat(client_socket, name):
     client_socket.send(message_to_send)
     print("Message sent successfully.")
 
-def playVideo(client_socket, name, lock, block_event):
-    block_event.set()  # Set the event to block other threads
-    print("Other thread is blocked")
-
-    # Acquire the lock
-    lock.acquire()
-
-    try:
-        # Send "PLAY" command to the server
-        client_socket.sendall("PLAY".encode())
-
-        # Receive video list from the server
-        response = client_socket.recv(1024).decode()
-        if not response:
-            print("Server didn't respond with video list.")
-            block_event.clear()
-            return
-
-        print("Obtained video list:", response)
-
-        # Get the video file name from the user
-        video_filename = input("Enter the file name you want to play: ")
-        client_socket.send(video_filename.encode())
-        print("Sent", video_filename, "for playback.")
-
-        # Receive the video content from the server
-        video_content = client_socket.recv(1024).decode()
-        print("Received video content:", video_content)
-
-    finally:
-        # Release the lock
-        lock.release()
-
-    # Clear the block event to unblock other threads
-    block_event.clear()
-
-def get_user_input(client_socket, name, lock, block_event):
-    while True:
-        user_input = input("Enter your message (type 'QUIT' to quit)  (type CHAT to chat): ")
-        if user_input.strip().upper() == "QUIT":
-            client_socket.send(user_input.encode())
-            exit()
-        if user_input.strip().upper() == "CHAT":
-            chat(client_socket, name)
-        if user_input.strip().upper() == "PLAY":
-            print("Asked for PLAY")
-            playVideo(client_socket, name, lock, block_event)
 
 def start_client():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -120,10 +147,10 @@ def start_client():
     client_socket.send(public_key)
     print("Sent your public key")
     block_event = Event()
-    lock = Lock()
+
     # Create threads for receiving messages and getting user input
-    receive_thread = Thread(target=receive_messages, args=(client_socket, private_key, lock, block_event))
-    input_thread = Thread(target=get_user_input, args=(client_socket, name, lock, block_event))
+    receive_thread = Thread(target=receive_messages, args=(client_socket, private_key, block_event))
+    input_thread = Thread(target=get_user_input, args=(client_socket, name, block_event))
 
     # Start both threads
     receive_thread.start()

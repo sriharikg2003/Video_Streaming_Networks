@@ -23,51 +23,84 @@ def playvideo(client_socket):
     try:
         data = b""
         payload_size = struct.calcsize(">L")
-        video_finished = False  # Flag to track whether the video has finished
-        while not video_finished:
+        print("PAYLOAD",payload_size)
+        while True:
             while len(data) < payload_size:
-                data += client_socket.recv(4096)
-
+                data += client_socket.recv(1024)
             packed_msg_size = data[:payload_size]
             data = data[payload_size:]
 
             msg_size = struct.unpack(">L", packed_msg_size)[0]
 
+            if msg_size == 0:
+                print("End of video transmission received")
+                break
+
             while len(data) < msg_size:
-                data += client_socket.recv(4096)
+                data += client_socket.recv(1024)
 
             frame_data = data[:msg_size]
             data = data[msg_size:]
 
-            # Decode frame
             encoded_frame = pickle.loads(frame_data)
             frame = cv2.imdecode(encoded_frame, cv2.IMREAD_COLOR)
-            # print(len(data),payload_size,len(packed_msg_size),len(msg_size),len(frame_data))
-            # Display frame
             cv2.imshow('Video', frame)
-            print(len(frame_data))
-            # Check for 'q' key press to exit
             if cv2.waitKey(1) & 0xFF == ord('q'):
-                return
+                break
 
-            # Check if there's no more data (video finished)
-            if len(frame_data) == 0:
-                video_finished = True
-
-            # Check if the window is closed
-            if cv2.getWindowProperty('Video', cv2.WND_PROP_VISIBLE) < 1:
-                video_finished = True
-
-            # Check for "END_VIDEO" signal
-            if len(frame_data) >= 8 and frame_data[-8:] == b'END_VIDEO':
-                video_finished = True
-
-        # Close the OpenCV window
         cv2.destroyAllWindows()
+        print("Video streaming finished")
+        return 
     except Exception as e:
         print("Error:", str(e))
         cv2.destroyAllWindows()
-        return 
+        return
+# def playvideo(client_socket):
+#     try:
+#         data = b""
+#         payload_size = struct.calcsize(">L")
+#         print("PAYLOAD",payload_size)
+#         video_finished = False  
+#         while True:
+#             while len(data) < payload_size:
+#                 data += client_socket.recv(1024)
+#             if b"END" in data:
+#                 video_finished=True
+#                 print("VIDEO STREAMING FINISHED")
+#             packed_msg_size = data[:payload_size]
+#             data = data[payload_size:]
+
+#             msg_size = struct.unpack(">L", packed_msg_size)[0]
+
+#             while len(data) < msg_size:
+#                 data += client_socket.recv(1024)
+#             if b"END" in data:
+#                 video_finished=True
+#                 print("HERER VIDEO STREAMING FINISHED")
+
+#             frame_data = data[:msg_size]
+#             data = data[msg_size:]
+
+#             encoded_frame = pickle.loads(frame_data)
+#             frame = cv2.imdecode(encoded_frame, cv2.IMREAD_COLOR)
+#             cv2.imshow('Video', frame)
+#             if cv2.waitKey(1) & 0xFF == ord('q'):
+#                 return
+#             if len(frame_data) == 0:
+#                 video_finished = True
+#             if cv2.getWindowProperty('Video', cv2.WND_PROP_VISIBLE) < 1:
+#                 video_finished = True
+#             if len(frame_data) >= 8 and frame_data[-8:] == b'END':
+#                 video_finished = True
+
+#             if video_finished:
+#                 cv2.destroyAllWindows()
+#                 print("Video streaming finished")
+#                 return 
+#     except Exception as e:
+#         print("Error:", str(e))
+#         cv2.destroyAllWindows()
+#         return 
 
 
 def receive_messages(client_socket, private_key,  block_event):
@@ -77,11 +110,12 @@ def receive_messages(client_socket, private_key,  block_event):
         # Check if the lock is not acquired
         try:
             
-            message = client_socket.recv(4096)
+            message = client_socket.recv(1024)
             # print(message.decode() , "RECIEVED FROM SERERER")
             if not message:
                 
                 break
+            print("MESSAGE FROM SERVER\n\n\n\n\n\n",message)
             if message[:4] == b'CHAT':
                 encrypted_message = message[4:]
                 decrypted_message = decrypt_message(encrypted_message, private_key)
@@ -100,11 +134,9 @@ def receive_messages(client_socket, private_key,  block_event):
                 print("AVAILABLE FILES"  ,  message.decode()[4:])
 
             elif message.decode()[:4]=="SHOW":
-                try:
-                    playvideo(client_socket)
-                except:
-                    pass
-                # print("PLAYING FILE"  ,  message.decode()[4:])
+
+                playvideo(client_socket)
+                print("DONE WITH SHOWING BRO")
 
         except ConnectionResetError:
             print("Connection closed by server.")

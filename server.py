@@ -27,7 +27,7 @@ print(video_folder)
 def askNameAndRSA(sender_socket, address):
     sender_socket.send("Enter your name:\n".encode())
     name = sender_socket.recv(1024).decode()
-    publicKeyData = sender_socket.recv(4096)
+    publicKeyData = sender_socket.recv(1024)
     publicKey = RSA.import_key(publicKeyData)
     # Send the updated clientsAndKey dictionary to the client
     clientsAndKeyToSend = {name: key.export_key().decode() for name, key in clientsAndKey.items()}
@@ -73,43 +73,14 @@ def broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket,message=
                 except Exception as e:
                     print(f"Error broadcasting enc message to {clientName}: {str(e)}")
 
-# def sendVideo(client_socket,video_name):
-#     print("SNDING VIDEO")
-#     # video_path = "Videos/BEES/1-sd_640_360_30fps.mp4"  # Replace 'your_video_file.mp4' with the path to your video file
-#     try:
-#         video_path = video_folder[video_name][0]
-#         # for first 1/3 take videoname[0]  and then [1] and then [2]
-#         video = cv2.VideoCapture(video_path)
-        
-#         while True:
-#             ret, frame = video.read()
-#             if not ret:
-#                 break
 
-#             # Encode frame
-#             _, encoded_frame = cv2.imencode('.jpg', frame)
-#             frame_data = pickle.dumps(encoded_frame, 0)
-
-#             # Pack frame size and frame data
-#             size = len(frame_data)
-#             packed_size = struct.pack(">L", size)
-
-#             # Send frame size and frame data
-#             client_socket.sendall(packed_size + frame_data)
-
-#         video.release()
-#         client_socket.sendall("END".encode())
-#         print("DONE AND ENDED")
-#     except:
-#         print("")
-#     return 
 def sendVideo(client_socket, video_name):
     print("Sending video:", video_name)
     try:
         video_paths = video_folder.get(video_name)
-        if video_paths is None or len(video_paths) != 3:
-            print("Invalid video files for:", video_name)
-            return
+        # if video_paths is None or len(video_paths) != 3:
+        #     print("Invalid video files for:", video_name)
+        #     return
 
         # Get the duration of each video (assuming all videos have the same duration)
         video = cv2.VideoCapture(video_paths[0])
@@ -150,7 +121,6 @@ def sendVideo(client_socket, video_name):
                     # Pack frame size and frame data
                     size = len(frame_data)
                     packed_size = struct.pack(">L", size)
-
                     # Send frame size and frame data
                     client_socket.sendall(packed_size + frame_data)
                 else:
@@ -158,22 +128,75 @@ def sendVideo(client_socket, video_name):
 
             video.release()
 
+        # Send end-of-transmission marker
+        client_socket.sendall(struct.pack(">L", 0))  # Zero-size packed frame indicates end of transmission
+
         print("Video transmission completed.")
+        return 
     except Exception as e:
         print("Error sending video:", str(e))
+        return 
+# def sendVideo(client_socket, video_name):
+#     print("Sending video:", video_name)
+#     try:
+#         video_paths = video_folder.get(video_name)
+#         # if video_paths is None or len(video_paths) != 3:
+#         #     print("Invalid video files for:", video_name)
+#         #     return
+
+#         # Get the duration of each video (assuming all videos have the same duration)
+#         video = cv2.VideoCapture(video_paths[0])
+#         fps = video.get(cv2.CAP_PROP_FPS)
+#         total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+#         video_duration = total_frames / fps
+#         video.release()
+
+#         # Calculate frame ranges for each portion of the video
+#         frame_ranges = []
+#         portion_duration = video_duration / 3
+#         for i in range(3):
+#             start_frame = int(i * portion_duration * fps)
+#             end_frame = int((i + 1) * portion_duration * fps)
+#             frame_ranges.append((start_frame, end_frame))
+
+#         # Iterate through each video file and send the corresponding portion
+#         for i, (video_path, (start_frame, end_frame)) in enumerate(zip(video_paths, frame_ranges)):
+#             print(f"Sending portion {i+1}/3 from video {i+1}/3")
+
+#             # Open the video file
+#             video = cv2.VideoCapture(video_path)
+
+#             # Set the frame position to the start of the portion
+#             video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+#             # Read and send frames until reaching the end of the portion
+#             while video.get(cv2.CAP_PROP_POS_FRAMES) < end_frame:
+#                 ret, frame = video.read()
+#                 if ret:
+#                     # Resize frame to fixed size
+#                     frame = cv2.resize(frame, (640, 480))  # Change the size as needed
+
+#                     # Encode frame
+#                     _, encoded_frame = cv2.imencode('.jpg', frame)
+#                     frame_data = pickle.dumps(encoded_frame, 0)
+
+#                     # Pack frame size and frame data
+#                     size = len(frame_data)
+#                     packed_size = struct.pack(">L", size)
+#                     # Send frame size and frame data
+#                     client_socket.sendall(packed_size + frame_data)
+#                 else:
+#                     print("Failed to read frame from video", i+1)
+
+#             video.release()
+
+#         print("Video transmission completed.")
+#         return 
+#     except Exception as e:
+#         print("Error sending video:", str(e))
+#         return 
 
 
-def handleVideo(client_socket):
-
-    # Sending the list of files to the client
-
-    
-    # Receiving the choice of video from the client
-    video_requested = client_socket.recv(1024).decode()
-    print("CAME",video_requested)
-    print("Requested video:", video_folder[video_requested])
- 
-    client_socket.sendall((f"PLAYING{str(video_folder[video_requested])}").encode())
 
 
 def handleClient(client_socket, address):
@@ -181,7 +204,7 @@ def handleClient(client_socket, address):
     name = askNameAndRSA(client_socket, address)
     while True:
         try:
-            message = client_socket.recv(4096)
+            message = client_socket.recv(1024)
             # print(message.decode() , "RECIEVED FROM CLIENT")
             if not message:
                 break
@@ -209,6 +232,8 @@ def handleClient(client_socket, address):
                 client_socket.send("SHOW".encode())
                 video_name = message.decode()[4:]
                 sendVideo(client_socket,video_name)
+                client_socket.send("END".encode())
+                print("SENT END")
                 # client_socket.send(f"SHOWING{video_folder[message.decode()[4:]]}".encode())
         except Exception as e:
             print(f"Error receiving data from {address}: {str(e)}")

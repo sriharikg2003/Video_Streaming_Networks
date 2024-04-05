@@ -18,47 +18,56 @@ def decrypt_message(encrypted_message, private_key):
         return decrypted_message.decode()
     except ValueError as e:
         return None
+
 def playvideo(client_socket):
-    data = b""
-    payload_size = struct.calcsize(">L")
-    video_finished = False  # Flag to track whether the video has finished
+    try:
+        data = b""
+        payload_size = struct.calcsize(">L")
+        video_finished = False  # Flag to track whether the video has finished
+        while not video_finished:
+            while len(data) < payload_size:
+                data += client_socket.recv(4096)
 
-    while not video_finished:
-        while len(data) < payload_size:
-            data += client_socket.recv(4096)
+            packed_msg_size = data[:payload_size]
+            data = data[payload_size:]
 
-        packed_msg_size = data[:payload_size]
-        data = data[payload_size:]
+            msg_size = struct.unpack(">L", packed_msg_size)[0]
 
-        msg_size = struct.unpack(">L", packed_msg_size)[0]
+            while len(data) < msg_size:
+                data += client_socket.recv(4096)
 
-        while len(data) < msg_size:
-            data += client_socket.recv(4096)
+            frame_data = data[:msg_size]
+            data = data[msg_size:]
 
-        frame_data = data[:msg_size]
-        data = data[msg_size:]
+            # Decode frame
+            encoded_frame = pickle.loads(frame_data)
+            frame = cv2.imdecode(encoded_frame, cv2.IMREAD_COLOR)
+            # print(len(data),payload_size,len(packed_msg_size),len(msg_size),len(frame_data))
+            # Display frame
+            cv2.imshow('Video', frame)
+            print(len(frame_data))
+            # Check for 'q' key press to exit
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                return
 
-        # Decode frame
-        encoded_frame = pickle.loads(frame_data)
-        frame = cv2.imdecode(encoded_frame, cv2.IMREAD_COLOR)
+            # Check if there's no more data (video finished)
+            if len(frame_data) == 0:
+                video_finished = True
 
-        # Display frame
-        cv2.imshow('Video', frame)
+            # Check if the window is closed
+            if cv2.getWindowProperty('Video', cv2.WND_PROP_VISIBLE) < 1:
+                video_finished = True
 
-        # Check for 'q' key press to exit
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            # Check for "END_VIDEO" signal
+            if len(frame_data) >= 8 and frame_data[-8:] == b'END_VIDEO':
+                video_finished = True
 
-        # Check if there's no more data (video finished)
-        if len(frame_data) == 0:
-            video_finished = True
-
-        # Check if the window is closed
-        if cv2.getWindowProperty('Video', cv2.WND_PROP_VISIBLE) < 1:
-            video_finished = True
-
-    cv2.destroyAllWindows()
-
+        # Close the OpenCV window
+        cv2.destroyAllWindows()
+    except Exception as e:
+        print("Error:", str(e))
+        cv2.destroyAllWindows()
+        return 
 
 
 def receive_messages(client_socket, private_key,  block_event):
@@ -69,7 +78,7 @@ def receive_messages(client_socket, private_key,  block_event):
         try:
             
             message = client_socket.recv(4096)
-            print(message.decode() , "RECIEVED FROM SERERER")
+            # print(message.decode() , "RECIEVED FROM SERERER")
             if not message:
                 
                 break
@@ -91,7 +100,10 @@ def receive_messages(client_socket, private_key,  block_event):
                 print("AVAILABLE FILES"  ,  message.decode()[4:])
 
             elif message.decode()[:4]=="SHOW":
-                playvideo(client_socket)
+                try:
+                    playvideo(client_socket)
+                except:
+                    pass
                 # print("PLAYING FILE"  ,  message.decode()[4:])
 
         except ConnectionResetError:

@@ -5,11 +5,18 @@ from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 import struct
 import pickle
+import warnings
+import os
+import sys
+
+
 import cv2
+import sys
+sys.stderr = open('/dev/null', 'w')
 lock = Lock()
 name_directory = dict()
 frame = None
-buffer = []
+
 def decrypt_message(encrypted_message, private_key):
     try:
         rsa_private_key = RSA.import_key(private_key)
@@ -17,45 +24,24 @@ def decrypt_message(encrypted_message, private_key):
         decrypted_message = cipher.decrypt(encrypted_message)
         return decrypted_message.decode()
     except ValueError as e:
+        print(1)
         return None
+
 def playvideo(client_socket):
-    global buffer
     try:
         data = b""
         payload_size = struct.calcsize(">L")
-        header_size = len(b"SHOWING")
-
         while True:
-            # Check if there is any data in the buffer
-            if buffer:
-                data = buffer[0]
-                del buffer[0]
-            else:
-                # Receive data from the server
+            while len(data) < payload_size:
                 data += client_socket.recv(1024)
-
-            # Check for the header
-            if data[:header_size] != b"SHOWING":
-                buffer.append(data)  # Add data to buffer if header is not present
-                data = b""  # Reset data to empty since it's buffered
-                continue
-
-            # Check for the "END" message
-            if b"END" in data:
-                print("End of video transmission received")
-                cv2.destroyAllWindows()  # Close the window
-                return
-
-            packed_msg_size = data[header_size:header_size + payload_size]
-            data = data[header_size + payload_size:]
+            packed_msg_size = data[:payload_size]
+            data = data[payload_size:]
 
             msg_size = struct.unpack(">L", packed_msg_size)[0]
-            print("Received message size:", msg_size)
 
             if msg_size == 0:
                 print("End of video transmission received")
-                cv2.destroyAllWindows()  # Close the window
-                return  # Exit the function
+                break
 
             while len(data) < msg_size:
                 data += client_socket.recv(1024)
@@ -65,17 +51,23 @@ def playvideo(client_socket):
 
             encoded_frame = pickle.loads(frame_data)
             frame = cv2.imdecode(encoded_frame, cv2.IMREAD_COLOR)
-            
             cv2.imshow('Video', frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-        cv2.destroyAllWindows()  # Close the window if the loop breaks
+        cv2.destroyAllWindows()
+
         print("Video streaming finished")
         return 
+    except RuntimeError as e:
+        print(2)
+        # Suppress the error message
+        
     except Exception as e:
-        print("Error:", str(e))
-        cv2.destroyAllWindows()  # Close the window in case of an error
+        # # Handle other exceptions if needed
+        # print("An error occurred:", str(e))
+        print(3)
+        cv2.destroyAllWindows()
         return
 
 
@@ -85,43 +77,50 @@ def receive_messages(client_socket, private_key,  block_event):
     global lock
     while True:
         try:
+            
             message = client_socket.recv(1024)
-            if not message:                
+            # print(message.decode() , "RECIEVED FROM SERERER")
+            if not message:
+                
                 break
-            print("MESSAGE FROM SERVER\n\n\n\n\n\n",message)
+            # print("MESSAGE FROM SERVER\n\n\n\n\n\n",message)
             if message[:4] == b'CHAT':
                 encrypted_message = message[4:]
                 decrypted_message = decrypt_message(encrypted_message, private_key)
                 if decrypted_message:
-                    print("Received decrypted message:", decrypted_message)
-                
+                    print("Received message:", decrypted_message)
             elif message.decode()[:4] == "QUIT":
                 print("\n" + message.decode()[4:])
                 
             elif message.decode()[:4] == "NEDI":
                 data = json.loads(message.decode()[4:])
-                name_directory.update(data)
-                print(name_directory)
+                name_directory = data  # Replace the existing dictionary with the new one
+                # print(name_directory.keys())
+                print("Updated client directory")
                 
             elif message.decode()[:4] == "PLAY":
                 print("AVAILABLE FILES"  ,  message.decode()[4:])
 
             elif message.decode()[:4]=="SHOW":
-
                 playvideo(client_socket)
-                print("DONE WITH SHOWING BRO")
+                print("DONE WITH SHOWING")
+                sys.stdout.flush()
+
+
+            else:
+                continue
 
         except ConnectionResetError:
-            print("Connection closed by server.")
+            # print("Connection closed by server.")
             break
 
 def get_user_input(client_socket, name, block_event):
     while True:
 
-        user_input = input("Enter your message (type 'QUIT' to quit)  (type CHAT to chat) (PLAY to get files) (SHOW to play video): ")
+        user_input = input("""Type an option:\n1. Type QUIT to quit\n2. Type CHAT to chat\n3. PLAY to get list of files\n4. SHOW to play video\n""")
         if user_input.strip().upper() == "QUIT":
             client_socket.send(user_input.encode())
-            exit()
+            break
         if user_input.strip().upper() == "CHAT":
             chat(client_socket, name)
         if user_input.strip().upper() == "PLAY":
@@ -131,6 +130,8 @@ def get_user_input(client_socket, name, block_event):
             video_requested = input("Enter the file you want")
             client_socket.sendall(f"SHOW{video_requested}".encode())
             # playVideo(client_socket, name, lock, block_event)
+        else:
+            continue
 
 def chat(client_socket, name):
     global name_directory
@@ -160,25 +161,30 @@ def start_client():
     key = RSA.generate(1025)
     public_key = key.publickey().export_key()
     private_key = key.export_key()
+    print(client_socket.recv(1024).decode())
+    c=input("Type OK to send the public key")
+    if c=="OK":
+            
+        client_socket.send(public_key)
+        print("Sent your public key")
+        block_event = Event()
 
-    client_socket.send(public_key)
-    print("Sent your public key")
-    block_event = Event()
+        # Create threads for receiving messages and getting user input
+        receive_thread = Thread(target=receive_messages, args=(client_socket, private_key, block_event))
+        input_thread = Thread(target=get_user_input, args=(client_socket, name, block_event))
 
-    # Create threads for receiving messages and getting user input
-    receive_thread = Thread(target=receive_messages, args=(client_socket, private_key, block_event))
-    input_thread = Thread(target=get_user_input, args=(client_socket, name, block_event))
+        # Start both threads
+        receive_thread.start()
+        input_thread.start()
 
-    # Start both threads
-    receive_thread.start()
-    input_thread.start()
+        # Wait for the input thread to finish
+        input_thread.join()
 
-    # Wait for the input thread to finish
-    input_thread.join()
-
-    # Send QUIT message to the server before closing the socket
-    client_socket.send("QUIT".encode())
-    client_socket.close()
+        # Send QUIT message to the server before closing the socket
+        client_socket.send("QUIT".encode())
+        client_socket.close()
+    else:
+        exit()
 
 if __name__ == "__main__":
     start_client()

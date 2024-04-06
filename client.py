@@ -24,7 +24,6 @@ def decrypt_message(encrypted_message, private_key):
         decrypted_message = cipher.decrypt(encrypted_message)
         return decrypted_message.decode()
     except ValueError as e:
-        print(1)
         return None
 
 def playvideo(client_socket):
@@ -59,22 +58,19 @@ def playvideo(client_socket):
 
         print("Video streaming finished")
         return 
-    except RuntimeError as e:
-        print(2)
-        # Suppress the error message
+
         
     except Exception as e:
         # # Handle other exceptions if needed
         # print("An error occurred:", str(e))
-        print(3)
         cv2.destroyAllWindows()
         return
 
 
 
 def receive_messages(client_socket, private_key,  block_event):
-    global name_directory
     global lock
+    global name_directory
     while True:
         try:
             
@@ -97,14 +93,21 @@ def receive_messages(client_socket, private_key,  block_event):
                 name_directory = data  # Replace the existing dictionary with the new one
                 # print(name_directory.keys())
                 print("Updated client directory")
+                # print(name_directory)
                 
             elif message.decode()[:4] == "PLAY":
-                print("AVAILABLE FILES"  ,  message.decode()[4:])
+                decoded_message = message.decode()
+                keys_list = decoded_message[decoded_message.index('[')+1:decoded_message.index(']')].split(", ")
+                print("AVAILABLE FILES\n")
+                for key in keys_list:
+                    print(key.strip("'"))
+                print("\n PRESS SHOW and choose the file you want to watch")
 
             elif message.decode()[:4]=="SHOW":
                 playvideo(client_socket)
                 print("DONE WITH SHOWING")
-                sys.stdout.flush()
+            # elif message[:4]==b"NEUS":
+            #     print(message.decode()[4:])
 
 
             else:
@@ -127,14 +130,17 @@ def get_user_input(client_socket, name, block_event):
             client_socket.sendall("PLAY".encode())
             print("Asked for PLAY")
         if user_input.strip().upper() == "SHOW":
-            video_requested = input("Enter the file you want")
+            video_requested = input("Enter the file you want\n")
             client_socket.sendall(f"SHOW{video_requested}".encode())
             # playVideo(client_socket, name, lock, block_event)
         else:
             continue
+        
 
 def chat(client_socket, name):
     global name_directory
+    print(name_directory)
+    print("\nAvilable Users : ")
     for i in name_directory:
         print(i)
     whom_to_chat_with = input("Enter name of chatee\n")
@@ -160,31 +166,30 @@ def start_client():
 
     key = RSA.generate(1025)
     public_key = key.publickey().export_key()
+    print("Public Key")
+    print(public_key)
+
     private_key = key.export_key()
-    print(client_socket.recv(1024).decode())
-    c=input("Type OK to send the public key")
-    if c=="OK":
-            
-        client_socket.send(public_key)
-        print("Sent your public key")
-        block_event = Event()
+    c=input(client_socket.recv(1024).decode())
+    client_socket.send(public_key)
+    print("Sent your public key")
+    block_event = Event()
 
-        # Create threads for receiving messages and getting user input
-        receive_thread = Thread(target=receive_messages, args=(client_socket, private_key, block_event))
-        input_thread = Thread(target=get_user_input, args=(client_socket, name, block_event))
+    # Create threads for receiving messages and getting user input
+    receive_thread = Thread(target=receive_messages, args=(client_socket, private_key, block_event))
+    input_thread = Thread(target=get_user_input, args=(client_socket, name, block_event))
 
-        # Start both threads
-        receive_thread.start()
-        input_thread.start()
+    # Start both threads
+    receive_thread.start()
+    input_thread.start()
 
-        # Wait for the input thread to finish
-        input_thread.join()
+    # Wait for the input thread to finish
+    input_thread.join()
 
-        # Send QUIT message to the server before closing the socket
-        client_socket.send("QUIT".encode())
-        client_socket.close()
-    else:
-        exit()
+    # Send QUIT message to the server before closing the socket
+    client_socket.send("QUIT".encode())
+    client_socket.close()
+
 
 if __name__ == "__main__":
     start_client()

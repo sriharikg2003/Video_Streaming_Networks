@@ -25,9 +25,10 @@ for i in os.listdir(directory):
 
 
 def askNameAndRSA(sender_socket, address):
+
     sender_socket.send("Enter your name:\n".encode())
     name = sender_socket.recv(1024).decode()
-    sender_socket.send("Enter your public key:\n".encode())
+    sender_socket.send("Enter your public key \n".encode())
     publicKeyData = sender_socket.recv(1024)
     print("Recieved ",name , "Public key")
     publicKey = RSA.import_key(publicKeyData)
@@ -41,7 +42,7 @@ def askNameAndRSA(sender_socket, address):
     print(name," joined")
     # print(clientsAndKey.keys())
     # Broadcast the updated clientsAndKey dictionary to all clients
-    broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket)
+    broadcastClientsAndKey(sender_socket)
     return name
 
 def create_encrypted_message(public_key, message):
@@ -51,7 +52,9 @@ def create_encrypted_message(public_key, message):
 
 import json
 
-def broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket,message=None,connect_join=None):
+def broadcastClientsAndKey( sender_socket,message=None,connect_join=None):
+    global clientsAndKey
+    global clientsAndPort
     if not message:
         print("BROADCASTING ...")
         for clientName, socket in clientsAndPort.items():
@@ -66,6 +69,7 @@ def broadcastClientsAndKey(clientsAndKey, clientsAndPort, sender_socket,message=
                             clientsAndKeyToSend[name] = public_key_str
                     # Serialize the dictionary to JSON
                     clientsAndKeyStr = json.dumps(clientsAndKeyToSend)
+                    # socket.send(b"NEUS"+name.encode()+b" joined")
                     socket.send(b"NEDI"+clientsAndKeyStr.encode())
                 except Exception as e:
                     pass
@@ -119,7 +123,7 @@ def sendVideo(client_socket, video_name):
                 ret, frame = video.read()
                 if ret:
                     # Resize frame to fixed size
-                    frame = cv2.resize(frame, (640, 480))  # Change the size as needed
+                    frame = cv2.resize(frame, (1080, 720))  # Change the size as needed
 
                     # Encode frame
                     _, encoded_frame = cv2.imencode('.jpg', frame)
@@ -158,7 +162,7 @@ def handleClient(client_socket, address):
                 print("CHAT")
                 encrypted_message = message[4:]
                 # print(encrypted_message)
-                broadcastClientsAndKey(clientsAndKey, clientsAndPort, client_socket, message=encrypted_message)
+                broadcastClientsAndKey(client_socket, message=encrypted_message)
 
             elif message.decode() == "QUIT":
                 print(name, "QUITED")
@@ -169,7 +173,7 @@ def handleClient(client_socket, address):
                 # print(clientsAndPort.keys())
                 for clientName, socket in clientsAndPort.items():
                     socket.send(f'QUIT{name} Left the connection'.encode())
-                broadcastClientsAndKey(clientsAndKey, clientsAndPort, client_socket)
+                broadcastClientsAndKey( client_socket)
                 client_socket.close()
                 return 
 
@@ -190,6 +194,7 @@ def handleClient(client_socket, address):
     print(f"Connection closed with {address}")
 
 def start():
+
     serverSocket = socket(AF_INET, SOCK_STREAM)
     serverPort = 5555
     serverSocket.setsockopt(SOL_SOCKET,SO_REUSEADDR, 1)
